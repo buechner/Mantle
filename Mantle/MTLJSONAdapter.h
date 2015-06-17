@@ -50,7 +50,11 @@
 /// (as strings or arrays of strings).
 + (NSDictionary *)JSONKeyPathsByPropertyKey;
 
+
+
 @optional
+
++ (NSDictionary *)JSONKeyPathsByPropertyKey:(NSString*)filterString;
 
 /// Specifies how to convert a JSON value to the given property key. If
 /// reversible, the transformer will also be used to convert the property value
@@ -134,7 +138,7 @@ extern const NSInteger MTLJSONAdapterErrorInvalidJSONMapping;
 ///
 /// Returns a JSON dictionary, or nil if a serialization error occurred.
 + (NSDictionary *)JSONDictionaryFromModel:(id<MTLJSONSerializing>)model error:(NSError **)error;
-
++ (NSDictionary *)JSONDictionaryFromModel:(id<MTLJSONSerializing>)model withFilterString:(NSString*)filterString error:(NSError **)error;
 /// Converts a array of models into a JSON representation.
 ///
 /// models - The array of models to use for JSON serialization. This argument
@@ -145,6 +149,7 @@ extern const NSInteger MTLJSONAdapterErrorInvalidJSONMapping;
 /// Returns a JSON array, or nil if a serialization error occurred for any
 /// model.
 + (NSArray *)JSONArrayFromModels:(NSArray *)models error:(NSError **)error;
++ (NSArray *)JSONArrayFromModels:(NSArray *)models withFilterString:(NSString*)filterString error:(NSError **)error;
 
 /// Initializes the receiver with a given model class.
 ///
@@ -179,6 +184,7 @@ extern const NSInteger MTLJSONAdapterErrorInvalidJSONMapping;
 ///
 /// Returns a model object, or nil if a serialization error occurred.
 - (NSDictionary *)JSONDictionaryFromModel:(id<MTLJSONSerializing>)model error:(NSError **)error;
+- (NSDictionary *)JSONDictionaryFromModel:(id<MTLJSONSerializing>)model withFilterString:(NSString*)filterString error:(NSError **)error;
 
 /// Filters the property keys used to serialize a given model.
 ///
@@ -240,6 +246,7 @@ extern const NSInteger MTLJSONAdapterErrorInvalidJSONMapping;
 /// Returns a reversible transformer which uses the class of the receiver for
 /// transforming values back and forth.
 + (NSValueTransformer<MTLTransformerErrorHandling> *)dictionaryTransformerWithModelClass:(Class)modelClass;
++ (NSValueTransformer<MTLTransformerErrorHandling> *)dictionaryTransformerWithModelClass:(Class)modelClass withFilterString:(NSString*)filterString;
 
 /// Creates a reversible transformer to convert an array of JSON dictionaries
 /// into an array of MTLModel objects, and vice-versa.
@@ -251,6 +258,7 @@ extern const NSInteger MTLJSONAdapterErrorInvalidJSONMapping;
 /// Returns a reversible transformer which uses the class of the receiver for
 /// transforming array elements back and forth.
 + (NSValueTransformer<MTLTransformerErrorHandling> *)arrayTransformerWithModelClass:(Class)modelClass;
++ (NSValueTransformer<MTLTransformerErrorHandling> *)arrayTransformerWithModelClass:(Class)modelClass withFilterString:(NSString*)filterString;
 
 /// This value transformer is used by MTLJSONAdapter to automatically convert
 /// NSURL properties to JSON strings and vice versa.

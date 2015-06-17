@@ -104,12 +104,20 @@ static NSString * const MTLJSONAdapterThrownExceptionErrorKey = @"MTLJSONAdapter
 }
 
 + (NSDictionary *)JSONDictionaryFromModel:(id<MTLJSONSerializing>)model error:(NSError **)error {
-	MTLJSONAdapter *adapter = [[self alloc] initWithModelClass:model.class];
+    return [self JSONDictionaryFromModel:model withFilterString:nil error:error];
+}
 
++ (NSDictionary *)JSONDictionaryFromModel:(id<MTLJSONSerializing>)model withFilterString:(NSString*)filterString error:(NSError **)error {
+    MTLJSONAdapter *adapter = [[self alloc] initWithModelClass:model.class andFilterString:filterString];
 	return [adapter JSONDictionaryFromModel:model error:error];
 }
 
 + (NSArray *)JSONArrayFromModels:(NSArray *)models error:(NSError **)error {
+    return [self JSONArrayFromModels:models withFilterString:nil error:error];
+}
+
++ (NSArray *)JSONArrayFromModels:(NSArray *)models withFilterString:(NSString*)filterString error:(NSError **)error {
+
 	NSParameterAssert(models != nil);
 	NSParameterAssert([models isKindOfClass:NSArray.class]);
 
@@ -170,6 +178,47 @@ static NSString * const MTLJSONAdapterThrownExceptionErrorKey = @"MTLJSONAdapter
 	_JSONAdaptersByModelClass = [NSMapTable strongToStrongObjectsMapTable];
 
 	return self;
+}
+
+- (id)initWithModelClass:(Class)modelClass andFilterString:(NSString*) filterString{
+    NSParameterAssert(modelClass != nil);
+    NSParameterAssert([modelClass conformsToProtocol:@protocol(MTLJSONSerializing)]);
+    
+    self = [super init];
+    if (self == nil) return nil;
+    
+    _modelClass = modelClass;
+    
+    _JSONKeyPathsByPropertyKey = [modelClass JSONKeyPathsByPropertyKey:filterString];
+    
+    NSSet *propertyKeys = [self.modelClass propertyKeys];
+    
+    for (NSString *mappedPropertyKey in _JSONKeyPathsByPropertyKey) {
+        if (![propertyKeys containsObject:mappedPropertyKey]) {
+            NSAssert(NO, @"%@ is not a property of %@.", mappedPropertyKey, modelClass);
+            return nil;
+        }
+        
+        id value = _JSONKeyPathsByPropertyKey[mappedPropertyKey];
+        
+        if ([value isKindOfClass:NSArray.class]) {
+            for (NSString *keyPath in value) {
+                if ([keyPath isKindOfClass:NSString.class]) continue;
+                
+                NSAssert(NO, @"%@ must either map to a JSON key path or a JSON array of key paths, got: %@.", mappedPropertyKey, value);
+                return nil;
+            }
+        } else if (![value isKindOfClass:NSString.class]) {
+            NSAssert(NO, @"%@ must either map to a JSON key path or a JSON array of key paths, got: %@.",mappedPropertyKey, value);
+            return nil;
+        }
+    }
+    
+    _valueTransformersByPropertyKey = [self.class valueTransformersForModelClass:modelClass withFilterString:filterString];
+    
+    _JSONAdaptersByModelClass = [NSMapTable strongToStrongObjectsMapTable];
+    
+    return self;
 }
 
 #pragma mark Serialization
@@ -362,6 +411,10 @@ static NSString * const MTLJSONAdapterThrownExceptionErrorKey = @"MTLJSONAdapter
 }
 
 + (NSDictionary *)valueTransformersForModelClass:(Class)modelClass {
+    return [self valueTransformersForModelClass:modelClass withFilterString:nil];
+}
+
++ (NSDictionary *)valueTransformersForModelClass:(Class)modelClass withFilterString:(NSString*)filterString{
 	NSParameterAssert(modelClass != nil);
 	NSParameterAssert([modelClass conformsToProtocol:@protocol(MTLJSONSerializing)]);
 
@@ -377,7 +430,18 @@ static NSString * const MTLJSONAdapterThrownExceptionErrorKey = @"MTLJSONAdapter
 			if (transformer != nil) result[key] = transformer;
 
 			continue;
-		}
+        } else {
+            SEL selector = MTLSelectorWithKeyPattern(key, "JSONTransformer:");
+            if ([modelClass respondsToSelector:selector]) {
+                IMP imp = [modelClass methodForSelector:selector];
+                NSValueTransformer * (*function)(id, SEL, id) = (__typeof__(function))imp;
+                NSValueTransformer *transformer = function(modelClass, selector, filterString);
+                
+                if (transformer != nil) result[key] = transformer;
+                
+                continue;
+            }
+        }
 
 		if ([modelClass respondsToSelector:@selector(JSONTransformerForKey:)]) {
 			NSValueTransformer *transformer = [modelClass JSONTransformerForKey:key];
@@ -405,7 +469,7 @@ static NSString * const MTLJSONAdapterThrownExceptionErrorKey = @"MTLJSONAdapter
 				transformer = [self transformerForModelPropertiesOfClass:propertyClass];
 			}
 
-			if (transformer == nil) transformer = [NSValueTransformer mtl_validatingTransformerForClass:propertyClass ?: NSObject.class];
+			if (transformer == nil) transformer = [NSValueTransformer mtl_validatingTransformerForClass:NSObject.class];
 		} else {
 			transformer = [self transformerForModelPropertiesOfObjCType:attributes->type] ?: [NSValueTransformer mtl_validatingTransformerForClass:NSValue.class];
 		}
@@ -467,6 +531,10 @@ static NSString * const MTLJSONAdapterThrownExceptionErrorKey = @"MTLJSONAdapter
 @implementation MTLJSONAdapter (ValueTransformers)
 
 + (NSValueTransformer<MTLTransformerErrorHandling> *)dictionaryTransformerWithModelClass:(Class)modelClass {
+    return [MTLJSONAdapter dictionaryTransformerWithModelClass:modelClass withFilterString:nil];
+}
+
++ (NSValueTransformer<MTLTransformerErrorHandling> *)dictionaryTransformerWithModelClass:(Class)modelClass withFilterString:(NSString*)filterString {
 	NSParameterAssert([modelClass isSubclassOfClass:MTLModel.class]);
 	NSParameterAssert([modelClass conformsToProtocol:@protocol(MTLJSONSerializing)]);
 	
@@ -512,7 +580,7 @@ static NSString * const MTLJSONAdapterThrownExceptionErrorKey = @"MTLJSONAdapter
 				return nil;
 			}
 			
-			NSDictionary *result = [self JSONDictionaryFromModel:model error:error];
+			NSDictionary *result = [self JSONDictionaryFromModel:model withFilterString:filterString error:error];
 			if (result == nil) {
 				*success = NO;
 			}
@@ -522,7 +590,12 @@ static NSString * const MTLJSONAdapterThrownExceptionErrorKey = @"MTLJSONAdapter
 }
 
 + (NSValueTransformer<MTLTransformerErrorHandling> *)arrayTransformerWithModelClass:(Class)modelClass {
-	id<MTLTransformerErrorHandling> dictionaryTransformer = [self dictionaryTransformerWithModelClass:modelClass];
+    return [self arrayTransformerWithModelClass:modelClass withFilterString:nil];
+}
+
++ (NSValueTransformer<MTLTransformerErrorHandling> *)arrayTransformerWithModelClass:(Class)modelClass withFilterString:(NSString*)filterString {
+
+    id<MTLTransformerErrorHandling> dictionaryTransformer = [self dictionaryTransformerWithModelClass:modelClass withFilterString:filterString];
 	
 	return [MTLValueTransformer
 		transformerUsingForwardBlock:^ id (NSArray *dictionaries, BOOL *success, NSError **error) {
